@@ -2,6 +2,7 @@ package hyperloglog
 
 import (
 	"encoding/binary"
+	"unsafe"
 )
 
 // This file implements the murmur3 32-bit hash on 32bit and 64bit integers
@@ -159,4 +160,25 @@ func Murmur128(i, j uint64) uint32 {
 	h ^= h >> 16
 	return h
 
+}
+
+// From https://golang.org/src/hash/fnv/fnv.go
+func FNV64(i uint64) uint32 {
+	var h, k uint32 = 2166136261, 16777619
+	// encode each byte
+	for x := 0; x < 8; x++ {
+		h *= k
+		h ^= uint32(i >> 8)
+	}
+	return h
+}
+
+func FNVString(key string) uint32 {
+	var h, k uint32 = 2166136261, 16777619
+	bkey := *(*[]byte)(unsafe.Pointer(&key))
+	for _, b := range bkey {
+		h *= k
+		h ^= uint32(b)
+	}
+	return h
 }
