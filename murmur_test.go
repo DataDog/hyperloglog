@@ -126,7 +126,7 @@ func Benchmark100Murmer64(b *testing.B) {
 func Benchmark100MurmerString(b *testing.B) {
 	input := make([]string, 100)
 	for i := 0; i < 100; i++ {
-		input[i] = randString((i % 15) + 5)
+		input[i] = randString(50)
 	}
 	benchmarkMurmerString(b, input)
 }
@@ -134,7 +134,7 @@ func Benchmark100MurmerString(b *testing.B) {
 func Benchmark100Hash32(b *testing.B) {
 	input := make([]string, 100)
 	for i := 0; i < 100; i++ {
-		input[i] = randString((i % 15) + 5)
+		input[i] = randString(50)
 	}
 	benchmarkHash32(b, input)
 }
@@ -150,7 +150,7 @@ func Benchmark100FNV64(b *testing.B) {
 func Benchmark100FNVString(b *testing.B) {
 	input := make([]string, 100)
 	for i := 0; i < 100; i++ {
-		input[i] = randString((i % 15) + 5)
+		input[i] = randString(50)
 	}
 	benchmarkFNVString(b, input)
 }
