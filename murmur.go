@@ -1,8 +1,20 @@
 package hyperloglog
 
 import (
+       "runtime"
+       "reflect"
+       "unsafe"
 	"encoding/binary"
 )
+
+const uint32Size = unsafe.Sizeof(uint32(0))
+
+func Advance(sh *reflect.StringHeader) uint32 {
+     	k := binary.LittleEndian.Uint32(*(*[]byte)(unsafe.Pointer(sh.Data)))
+	sh.Len -= int(uint32Size)
+	sh.Data += uint32Size
+	return k
+}
 
 // This file implements the murmur3 32-bit hash on 32bit and 64bit integers
 // for little endian machines only with no heap allocation.  If you are using
@@ -14,17 +26,15 @@ func MurmurString(key string) uint32 {
 	var c1, c2 uint32 = 0xcc9e2d51, 0x1b873593
 	var h, k uint32
 
-	bkey := []byte(key)
-	blen := len(bkey)
+	// Reinterpret 
+	strHeader := (*reflect.StringHeader)(unsafe.Pointer(&key))
+	blen := strHeader.Len
 
 	l := blen / 4 // chunk length
-	tail := bkey[l*4:]
 
+	if strHeader.Len >= 4 {
 	// for each 4 byte chunk of `key'
-	for i := 0; i < l; i++ {
-		// next 4 byte chunk of `key'
-		k = binary.LittleEndian.Uint32(bkey[i*4:])
-
+	for k := Advance(strHeader); strHeader.Len >= 4; k = Advance(strHeader) {
 		// encode next 4 byte chunk of `key'
 		k *= c1
 		k = (k << 15) | (k >> (32 - 15))
@@ -33,10 +43,12 @@ func MurmurString(key string) uint32 {
 		h = (h << 13) | (h >> (32 - 13))
 		h = (h * 5) + 0xe6546b64
 	}
+	}
 
 	k = 0
 	// remainder
-	switch len(tail) {
+	tail := *(*[]byte)(unsafe.Pointer(strHeader.Data))
+	switch strHeader.Len {
 	case 3:
 		k ^= uint32(tail[2]) << 16
 		fallthrough
@@ -57,6 +69,9 @@ func MurmurString(key string) uint32 {
 	h ^= (h >> 13)
 	h *= 0xc2b2ae35
 	h ^= (h >> 16)
+
+	runtime.KeepAlive(&key)
+
 	return h
 }
 
