@@ -2,7 +2,20 @@ package hyperloglog
 
 import (
 	"encoding/binary"
+	"reflect"
+	"runtime"
+	"unsafe"
 )
+
+const uint32Size = unsafe.Sizeof(uint32(0))
+
+func advance(sh *reflect.StringHeader) uint32 {
+	b := *(*[]byte)(unsafe.Pointer(sh))
+	k := binary.LittleEndian.Uint32(b)
+	sh.Len -= int(uint32Size)
+	sh.Data += uint32Size
+	return k
+}
 
 // This file implements the murmur3 32-bit hash on 32bit and 64bit integers
 // for little endian machines only with no heap allocation.  If you are using
@@ -14,28 +27,37 @@ func MurmurString(key string) uint32 {
 	var c1, c2 uint32 = 0xcc9e2d51, 0x1b873593
 	var h, k uint32
 
-	bkey := []byte(key)
-	blen := len(bkey)
+	// Reinterpret the string as a `StringHeader`. This comes with three important caveats:
+	// 1. We must never write through the pointer derived. Golang strings are immutable and we cannot
+	//    break that assumption.
+	// 2. Golang continues to have a non-moving GC. This only works because the Golang GC is
+	//    (currently) non-moving. There are no plans to break this yet, but it remains a caveat.
+	// 3. `key` is used after the `StringHeader` is no longer needed. Currently, `runtime.KeepAlive`
+	//    is used as a no-op use.
+	strHeader := (*reflect.StringHeader)(unsafe.Pointer(&key))
+	blen := strHeader.Len
 
-	l := blen / 4 // chunk length
-	tail := bkey[l*4:]
+	if strHeader.Len >= int(uint32Size) {
+		// for each 4 byte chunk of `key'
 
-	// for each 4 byte chunk of `key'
-	for i := 0; i < l; i++ {
-		// next 4 byte chunk of `key'
-		k = binary.LittleEndian.Uint32(bkey[i*4:])
-
-		// encode next 4 byte chunk of `key'
-		k *= c1
-		k = (k << 15) | (k >> (32 - 15))
-		k *= c2
-		h ^= k
-		h = (h << 13) | (h >> (32 - 13))
-		h = (h * 5) + 0xe6546b64
+		for {
+			k := advance(strHeader)
+			// encode next 4 byte chunk of `key'
+			k *= c1
+			k = (k << 15) | (k >> (32 - 15))
+			k *= c2
+			h ^= k
+			h = (h << 13) | (h >> (32 - 13))
+			h = (h * 5) + 0xe6546b64
+			if strHeader.Len < int(uint32Size) {
+				break
+			}
+		}
 	}
 
 	k = 0
 	// remainder
+	tail := *(*[]byte)(unsafe.Pointer(strHeader))
 	switch len(tail) {
 	case 3:
 		k ^= uint32(tail[2]) << 16
@@ -57,6 +79,9 @@ func MurmurString(key string) uint32 {
 	h ^= (h >> 13)
 	h *= 0xc2b2ae35
 	h ^= (h >> 16)
+
+	runtime.KeepAlive(&key)
+
 	return h
 }
 
