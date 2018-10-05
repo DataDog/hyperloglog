@@ -1,16 +1,17 @@
 package hyperloglog
 
 import (
-       "runtime"
-       "reflect"
-       "unsafe"
 	"encoding/binary"
+	"reflect"
+	"runtime"
+	"unsafe"
 )
 
 const uint32Size = unsafe.Sizeof(uint32(0))
 
-func Advance(sh *reflect.StringHeader) uint32 {
-     	k := binary.LittleEndian.Uint32(*(*[]byte)(unsafe.Pointer(sh.Data)))
+func advance(sh *reflect.StringHeader) uint32 {
+	b := *(*[]byte)(unsafe.Pointer(sh))
+	k := binary.LittleEndian.Uint32(b)
 	sh.Len -= int(uint32Size)
 	sh.Data += uint32Size
 	return k
@@ -26,29 +27,32 @@ func MurmurString(key string) uint32 {
 	var c1, c2 uint32 = 0xcc9e2d51, 0x1b873593
 	var h, k uint32
 
-	// Reinterpret 
+	// Reinterpret
 	strHeader := (*reflect.StringHeader)(unsafe.Pointer(&key))
 	blen := strHeader.Len
 
-	l := blen / 4 // chunk length
+	if strHeader.Len >= int(uint32Size) {
+		// for each 4 byte chunk of `key'
 
-	if strHeader.Len >= 4 {
-	// for each 4 byte chunk of `key'
-	for k := Advance(strHeader); strHeader.Len >= 4; k = Advance(strHeader) {
-		// encode next 4 byte chunk of `key'
-		k *= c1
-		k = (k << 15) | (k >> (32 - 15))
-		k *= c2
-		h ^= k
-		h = (h << 13) | (h >> (32 - 13))
-		h = (h * 5) + 0xe6546b64
-	}
+		for {
+			k := advance(strHeader)
+			// encode next 4 byte chunk of `key'
+			k *= c1
+			k = (k << 15) | (k >> (32 - 15))
+			k *= c2
+			h ^= k
+			h = (h << 13) | (h >> (32 - 13))
+			h = (h * 5) + 0xe6546b64
+			if strHeader.Len < int(uint32Size) {
+				break
+			}
+		}
 	}
 
 	k = 0
 	// remainder
-	tail := *(*[]byte)(unsafe.Pointer(strHeader.Data))
-	switch strHeader.Len {
+	tail := *(*[]byte)(unsafe.Pointer(strHeader))
+	switch len(tail) {
 	case 3:
 		k ^= uint32(tail[2]) << 16
 		fallthrough
