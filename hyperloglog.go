@@ -14,31 +14,16 @@ import (
 )
 
 var (
-	exp32 = math.Pow(2, 32)
+	exp32 = float64(4294967296) // 2**32
 )
 
 // A HyperLogLog is a deterministic cardinality estimator.  This version
 // exports its fields so that it is suitable for saving eg. to a database.
 type HyperLogLog struct {
-	M         uint    // Number of registers
-	B         uint32  // Number of bits used to determine register index
-	Alpha     float64 // Bias correction constant
-	Registers []uint8
-}
-
-// Compute bias correction alpha_m.
-func getAlpha(m uint) (result float64) {
-	switch m {
-	case 16:
-		result = 0.673
-	case 32:
-		result = 0.697
-	case 64:
-		result = 0.709
-	default:
-		result = 0.7213 / (1.0 + 1.079/float64(m))
-	}
-	return result
+	registers []uint8
+	alpha     float64 // Bias correction constant
+	b         uint8   // Number of bits used to determine register index
+	m         int     // Number of registers
 }
 
 // New creates a HyperLogLog with the given number of registers. More
@@ -52,56 +37,51 @@ func getAlpha(m uint) (result float64) {
 // Approximate error will be:
 //     1.04 / sqrt(registers)
 //
-func New(registers uint) (*HyperLogLog, error) {
-	if (registers & (registers - 1)) != 0 {
-		return nil, fmt.Errorf("number of registers %d not a power of two", registers)
+func New(m int) *HyperLogLog {
+	if (m & (m - 1)) != 0 {
+		panic(fmt.Errorf("number of registers %d not a power of two", m))
 	}
-	h := &HyperLogLog{}
-	h.M = registers
-	h.B = uint32(math.Ceil(math.Log2(float64(registers))))
-	h.Alpha = getAlpha(registers)
-	h.Reset()
-	return h, nil
+
+	return &HyperLogLog{
+		registers: make([]uint8, m),
+		alpha:     getAlpha(m),
+		b:         getLog(m),
+		m:         m,
+	}
 }
 
 // Reset all internal variables and set the count to zero.
 func (h *HyperLogLog) Reset() {
-	h.Registers = make([]uint8, h.M)
-}
-
-// Calculate the position of the leftmost 1-bit.
-func rho(val uint32, max uint32) uint8 {
-	r := uint32(1)
-	for val&0x80000000 == 0 && r <= max {
-		r++
-		val <<= 1
+	for i := 0; i < h.m; i++ {
+		h.registers[i] = 0
 	}
-	return uint8(r)
 }
 
-// Add to the count. val should be a 32 bit unsigned integer from a
+// Add to the count. val should be a 64 bit unsigned integer from a
 // good hash function.
 func (h *HyperLogLog) Add(val uint32) {
-	k := 32 - h.B
-	r := rho(val<<h.B, k)
-	j := val >> uint(k)
-	if r > h.Registers[j] {
-		h.Registers[j] = r
+	k := 32 - h.b
+	r := rho(val<<h.b, k)
+	j := val >> k
+
+	if r > h.registers[j] {
+		h.registers[j] = r
 	}
 }
 
 // Count returns the estimated cardinality.
 func (h *HyperLogLog) Count() uint64 {
 	sum := 0.0
-	m := float64(h.M)
-	for _, val := range h.Registers {
-		sum += 1.0 / math.Pow(2.0, float64(val))
+	m := float64(h.m)
+	for _, val := range h.registers {
+		sum += 1.0 / float64(uint64(1)<<val)
 	}
-	estimate := h.Alpha * m * m / sum
-	if estimate <= 5.0/2.0*m {
+	estimate := h.alpha * m * m / sum
+
+	if estimate <= 2.5*m {
 		// Small range correction
 		v := 0
-		for _, r := range h.Registers {
+		for _, r := range h.registers {
 			if r == 0 {
 				v++
 			}
@@ -109,7 +89,7 @@ func (h *HyperLogLog) Count() uint64 {
 		if v > 0 {
 			estimate = m * math.Log(m/float64(v))
 		}
-	} else if estimate > 1.0/30.0*exp32 {
+	} else if estimate > 0.03*exp32 {
 		// Large range correction
 		estimate = -exp32 * math.Log(1-estimate/exp32)
 	}
@@ -118,15 +98,62 @@ func (h *HyperLogLog) Count() uint64 {
 
 // Merge another HyperLogLog into this one. The number of registers in
 // each must be the same.
-func (h *HyperLogLog) Merge(other *HyperLogLog) error {
-	if h.M != other.M {
-		return fmt.Errorf("number of registers doesn't match: %d != %d",
-			h.M, other.M)
+func (h *HyperLogLog) Merge(other *HyperLogLog) {
+	if h.m != other.m {
+		panic(fmt.Errorf("number of registers doesn't match: %d != %d", h.m, other.m))
 	}
-	for j, r := range other.Registers {
-		if r > h.Registers[j] {
-			h.Registers[j] = r
+
+	for i := 0; i < h.m; i++ {
+		if other.registers[i] > h.registers[i] {
+			h.registers[i] = other.registers[i]
 		}
 	}
-	return nil
+}
+
+// Calculate the position of the leftmost 1-bit.
+func rho(val uint32, max uint8) uint8 {
+	r := uint8(1)
+	for val&0x80000000 == 0 && r <= max {
+		r++
+		val <<= 1
+	}
+	return r
+}
+
+// Compute bias correction alpha_m.
+func getAlpha(m int) (result float64) {
+	switch m {
+	case 16:
+		result = 0.673102023867666
+	case 32:
+		result = 0.6971226338010241
+	case 64:
+		result = 0.7092084528700233
+	case 128:
+		result = 0.7152711899613394
+	case 256:
+		result = 0.7183076381918139
+	case 512:
+		result = 0.7198271478204001
+	case 1024:
+		result = 0.7205872259764527
+	case 2048:
+		result = 0.720967346136219
+	case 4096:
+		result = 0.7211574265173785
+	default:
+		result = 0.721347607152952 / (1.0 + 1.08018007534368/float64(m))
+	}
+	return result
+}
+
+// Calculate the number of bits necessary to reprsent integers
+// from 0 to m-1 (logarithm in base 2 of m)
+func getLog(m int) uint8 {
+	r := uint8(0)
+	for m&1 == 0 {
+		r++
+		m >>= 1
+	}
+	return r
 }

@@ -13,29 +13,31 @@ import (
 // Return a dictionary up to n words. If n is zero, return the entire
 // dictionary.
 func dictionary(n int) []string {
-	var words []string
-	dict := "/usr/share/dict/words"
-	f, err := os.Open(dict)
+	path := "/usr/share/dict/words"
+	f, err := os.Open(path)
 	if err != nil {
-		fmt.Printf("can't open dictionary file '%s': %v\n", dict, err)
+		fmt.Printf("can't open dictionary file '%s': %v\n", path, err)
 		os.Exit(1)
 	}
-	count := 0
 	buf := bufio.NewReader(f)
+
+	count := 0
+	words := make([]string, 0, n)
 	for {
-		if n != 0 && count >= n {
+		if n != 0 && count < n {
 			break
 		}
 		word, err := buf.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
 			continue
 		}
 		words = append(words, word)
 		count++
 	}
+
 	f.Close()
 	return words
 }
@@ -44,18 +46,14 @@ func geterror(actual uint64, estimate uint64) (result float64) {
 	return (float64(estimate) - float64(actual)) / float64(actual)
 }
 
-func testHyperLogLog(t *testing.T, n, lowB, highB int) {
+func testHyperLogLog(t *testing.T, n int, lowB, highB uint) {
 	words := dictionary(n)
 	bad := 0
 	nWords := uint64(len(words))
 	for i := lowB; i < highB; i++ {
-		m := uint(math.Pow(2, float64(i)))
+		m := 1 << i
 
-		h, err := New(m)
-		if err != nil {
-			t.Fatalf("can't make New(%d): %v", m, err)
-		}
-
+		h := New(m)
 		hash := fnv.New32()
 		for _, word := range words {
 			hash.Write([]byte(word))
@@ -84,15 +82,10 @@ func TestHyperLogLogBig(t *testing.T) {
 	testHyperLogLog(t, 0, 4, 17)
 }
 
-func benchmarkCount(b *testing.B, registers int) {
+func benchmarkCount(b *testing.B, m int) {
 	words := dictionary(0)
-	m := uint(math.Pow(2, float64(registers)))
 
-	h, err := New(m)
-	if err != nil {
-		return
-	}
-
+	h := New(m)
 	hash := fnv.New32()
 	for _, word := range words {
 		hash.Write([]byte(word))
@@ -107,29 +100,29 @@ func benchmarkCount(b *testing.B, registers int) {
 }
 
 func BenchmarkCount4(b *testing.B) {
-	benchmarkCount(b, 4)
+	benchmarkCount(b, 16)
 }
 
 func BenchmarkCount5(b *testing.B) {
-	benchmarkCount(b, 5)
+	benchmarkCount(b, 32)
 }
 
 func BenchmarkCount6(b *testing.B) {
-	benchmarkCount(b, 6)
+	benchmarkCount(b, 64)
 }
 
 func BenchmarkCount7(b *testing.B) {
-	benchmarkCount(b, 7)
+	benchmarkCount(b, 128)
 }
 
 func BenchmarkCount8(b *testing.B) {
-	benchmarkCount(b, 8)
+	benchmarkCount(b, 256)
 }
 
 func BenchmarkCount9(b *testing.B) {
-	benchmarkCount(b, 9)
+	benchmarkCount(b, 512)
 }
 
 func BenchmarkCount10(b *testing.B) {
-	benchmarkCount(b, 10)
+	benchmarkCount(b, 1024)
 }
