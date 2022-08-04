@@ -11,10 +11,11 @@ package hyperloglog
 import (
 	"fmt"
 	"math"
+	"math/bits"
 )
 
-var (
-	exp32 = math.Pow(2, 32)
+const (
+	exp32 = 1 << 32 // 2^32
 )
 
 // A HyperLogLog is a deterministic cardinality estimator.  This version
@@ -53,12 +54,15 @@ func getAlpha(m uint) (result float64) {
 // The estimates provided by hyperloglog are expected to be within σ, 2σ, 3σ
 // of the exact count in respectively 65%, 95%, 99% of all the cases.
 func New(registers uint) (*HyperLogLog, error) {
+	if registers == 0 {
+		panic("cannot have zero registers")
+	}
 	if (registers & (registers - 1)) != 0 {
 		return nil, fmt.Errorf("number of registers %d not a power of two", registers)
 	}
 	h := &HyperLogLog{}
 	h.M = registers
-	h.B = uint32(math.Ceil(math.Log2(float64(registers))))
+	h.B = uint32(math.Log2(float64(registers)))
 	h.Alpha = getAlpha(registers)
 	h.Registers = make([]uint8, h.M)
 	return h, nil
@@ -71,21 +75,12 @@ func (h *HyperLogLog) Reset() {
 	}
 }
 
-// Calculate the position of the leftmost 1-bit.
-func rho(val uint32, max uint32) uint8 {
-	r := uint32(1)
-	for val&0x80000000 == 0 && r <= max {
-		r++
-		val <<= 1
-	}
-	return uint8(r)
-}
-
 // Add to the count. val should be a 32 bit unsigned integer from a
 // good hash function.
 func (h *HyperLogLog) Add(val uint32) {
 	k := 32 - h.B
-	r := rho(val<<h.B, k)
+	slice := (val << h.B) | (1 << (h.B - 1))
+	r := uint8(bits.LeadingZeros32(slice) + 1)
 	j := val >> uint(k)
 	if r > h.Registers[j] {
 		h.Registers[j] = r
@@ -110,7 +105,7 @@ func (h *HyperLogLog) count(withLargeRangeCorrection bool) uint64 {
 	sum := 0.0
 	m := float64(h.M)
 	for _, val := range h.Registers {
-		sum += 1.0 / math.Pow(2.0, float64(val))
+		sum += 1.0 / float64(int(1)<<val)
 	}
 	estimate := h.Alpha * m * m / sum
 	if estimate <= 5.0/2.0*m {
