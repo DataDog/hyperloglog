@@ -54,6 +54,9 @@ func getAlpha(m uint) (result float64) {
 // The estimates provided by hyperloglog are expected to be within σ, 2σ, 3σ
 // of the exact count in respectively 65%, 95%, 99% of all the cases.
 func New(registers uint) (*HyperLogLog, error) {
+	if registers == 0 {
+		panic("cannot have zero registers")
+	}
 	if (registers & (registers - 1)) != 0 {
 		return nil, fmt.Errorf("number of registers %d not a power of two", registers)
 	}
@@ -76,7 +79,7 @@ func (h *HyperLogLog) Reset() {
 // good hash function.
 func (h *HyperLogLog) Add(val uint32) {
 	k := 32 - h.B
-	slice := val<<h.B | 1<<(h.B-1)
+	slice := (val << h.B) | (1 << (h.B - 1))
 	r := uint8(bits.LeadingZeros32(slice) + 1)
 	j := val >> uint(k)
 	if r > h.Registers[j] {
