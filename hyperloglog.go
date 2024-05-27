@@ -133,9 +133,14 @@ func (h *HyperLogLog) Merge(other *HyperLogLog) error {
 		return fmt.Errorf("number of registers doesn't match: %d != %d",
 			h.M, other.M)
 	}
+
+	// Trigger boundary check once for h.Registers
+	thisRegister := h.Registers
+	_ = thisRegister[len(other.Registers)-1]
+
 	for j, r := range other.Registers {
-		if r > h.Registers[j] {
-			h.Registers[j] = r
+		if r > thisRegister[j] {
+			thisRegister[j] = r
 		}
 	}
 	return nil

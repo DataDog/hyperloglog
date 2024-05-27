@@ -115,6 +115,27 @@ func TestReset(t *testing.T) {
 	testReset(t, 512, 1_000_000, 10)
 }
 
+func TestMerge(t *testing.T) {
+	trueDisinctPerHll := uint64(100000)
+	m := uint(math.Pow(2, float64(11)))
+
+	h, err := New(m)
+	h2, err := New(m)
+	if err != nil {
+		return
+	}
+
+	for i := uint64(0); i < trueDisinctPerHll; i++ {
+		h.Add(Murmur64(i))
+	}
+
+	h2.Merge(h)
+
+	if h.Count() != h2.Count() {
+		t.Errorf("Estimate mismatch after merge, %d != %d", h.Count(), h2.Count())
+	}
+}
+
 func BenchmarkReset(b *testing.B) {
 	m := uint(256)
 	numObjects := 1000
@@ -182,4 +203,27 @@ func BenchmarkCount9(b *testing.B) {
 
 func BenchmarkCount10(b *testing.B) {
 	benchmarkCount(b, 10)
+}
+
+func BenchmarkMerge(b *testing.B) {
+	words := dictionary(0)
+	m := uint(math.Pow(2, float64(11)))
+
+	h, err := New(m)
+	h2, err := New(m)
+	if err != nil {
+		return
+	}
+
+	hash := fnv.New32()
+	for _, word := range words {
+		hash.Write([]byte(word))
+		h.Add(hash.Sum32())
+		hash.Reset()
+	}
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		h2.Merge(h)
+	}
 }
