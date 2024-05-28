@@ -273,15 +273,25 @@ func BenchmarkMerge(b *testing.B) {
 	h2Backup := make([]byte, len(h2.Registers))
 	copy(h2Backup, h2.Registers)
 
-	b.Run("baseline", func(b *testing.B) {
+	b.Run("baseline-branch-taken", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
 			copy(h2.Registers, h2Backup)
 			h2.Merge(h)
 		}
 	})
-	b.Run("swar", func(b *testing.B) {
+	b.Run("swar-branch-taken", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
 			copy(h2.Registers, h2Backup)
+			h2.MergeSWAR(h)
+		}
+	})
+	b.Run("baseline-branch-repeated", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			h2.Merge(h)
+		}
+	})
+	b.Run("swar-branch-repeated", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
 			h2.MergeSWAR(h)
 		}
 	})
