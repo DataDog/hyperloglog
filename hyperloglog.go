@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"unsafe"
 )
 
 const (
@@ -124,6 +125,56 @@ func (h *HyperLogLog) count(withLargeRangeCorrection bool) uint64 {
 		estimate = -exp32 * math.Log(1-estimate/exp32)
 	}
 	return uint64(estimate)
+}
+
+func (h *HyperLogLog) MergeSWAR(other *HyperLogLog) error {
+	if h.M != other.M {
+		return fmt.Errorf("number of registers doesn't match: %d != %d",
+			h.M, other.M)
+	}
+	if bits.OnesCount(h.M) != 1 {
+		return fmt.Errorf("must be a power of two")
+	}
+	from := unsafe.Slice((*uint64)(unsafe.Pointer(&other.Registers[0])), len(other.Registers)>>3)
+	to := unsafe.Slice((*uint64)(unsafe.Pointer(&h.Registers[0])), len(h.Registers)>>3)
+	if len(from) != len(to) {
+		// Convince the compiler to skip bounds checks later
+		panic("")
+	}
+	for i := range from {
+		to[i] = maxSWAR(from[i], to[i])
+	}
+	return nil
+}
+
+func maxSWAR(a, b uint64) uint64 {
+	const (
+		// Only MSB of each packed byte
+		maskHi = (^uint64(0) / 255) << 7
+		// Only 7 LSBs of each packed byte
+		maskLo = ^maskHi
+	)
+
+	// Subtract the low 7 bits of each packed register, a - b, in a special form:
+	// 1aaaaaaa - 0bbbbbbb
+	// -> 1******* if a >= b
+	// -> 0******* if a < b
+	// note that the leading 1 prevents subtraction from cascading to lower bytes
+	aLowGt := (a | maskHi) - (b & maskLo)
+
+	// a >= b IFF any of the following is true:
+	// a's hi bit is set and b's is not
+	// a and b have the same hi bits, and a's low bits are greater than b's low bits
+	abHiEq := ^(a ^ b)
+	aHiGt := a & ^b
+	// 1s in bytes where from >= to, otherwise 0s
+	cmp := (aHiGt | (abHiEq & aLowGt)) & maskHi
+	// Shift the MSB to LSB within each packed register, and multiply by 255 to get all 1s in each packed
+	// register where from >= to
+	cmpMask := (cmp >> 7) * 255
+	// Blend the bytes in from and to according to the comparison mask. This is the result of max(from, to)
+	blended := (a & cmpMask) | (b &^ cmpMask)
+	return blended
 }
 
 // Merge another HyperLogLog into this one. The number of registers in

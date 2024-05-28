@@ -2,6 +2,7 @@ package hyperloglog
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"math/rand"
 	"os"
 	"testing"
+	"unsafe"
 )
 
 // Return a dictionary up to n words. If n is zero, return the entire
@@ -145,14 +147,24 @@ func BenchmarkReset(b *testing.B) {
 		b.Fatalf("can't make New(%d): %v", m, err)
 	}
 
-	b.ResetTimer()
-
-	for n := 0; n < b.N; n++ {
-		for i := 0; i < numObjects; i++ {
-			h.Add(uint32(i))
+	hr := unsafe.Slice((*byte)(unsafe.Pointer(&h.Registers[0])), len(h.Registers))
+	hrc := make([]byte, len(hr))
+	b.Run("loop", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			for i := 0; i < numObjects; i++ {
+				h.Add(uint32(i))
+			}
+			h.Reset()
 		}
-		h.Reset()
-	}
+	})
+	b.Run("copy", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			for i := 0; i < numObjects; i++ {
+				h.Add(uint32(i))
+			}
+			copy(hr, hrc)
+		}
+	})
 }
 
 func benchmarkCount(b *testing.B, registers int) {
@@ -205,8 +217,40 @@ func BenchmarkCount10(b *testing.B) {
 	benchmarkCount(b, 10)
 }
 
+func TestMaxSWAR(t *testing.T) {
+	pack := func(xs ...byte) uint64 {
+		if len(xs) != 8 {
+			panic("must pack 8 bytes")
+		}
+		return binary.LittleEndian.Uint64(xs)
+	}
+	unpack := func(x uint64) []byte {
+		unpacked := make([]byte, 8)
+		binary.LittleEndian.PutUint64(unpacked, x)
+		return unpacked
+	}
+	//a := []byte{0, 7, 127, 128, 129, 200, 230, 255}
+	//b := []byte{0, 255, 128, 129, 127, 7, 230, 128}
+	a := []byte{9, 7, 8, 7, 9, 5, 8, 7}
+	b := []byte{9, 7, 6, 6, 8, 5, 7, 5}
+	for n := 0; n < 1000; n++ {
+		r := unpack(maxSWAR(pack(a...), pack(b...)))
+		for i := range r {
+			if r[i] != max(a[i], b[i]) {
+				t.Fail()
+			}
+		}
+		for i := range a {
+			a[i] = byte(rand.Uint32())
+			b[i] = byte(rand.Uint32())
+		}
+	}
+}
+
 func BenchmarkMerge(b *testing.B) {
 	words := dictionary(0)
+	words0 := words[:len(words)/2]
+	words1 := words[len(words0):]
 	m := uint(math.Pow(2, float64(11)))
 
 	h, err := New(m)
@@ -216,14 +260,43 @@ func BenchmarkMerge(b *testing.B) {
 	}
 
 	hash := fnv.New32()
-	for _, word := range words {
+	for _, word := range words0 {
 		hash.Write([]byte(word))
 		h.Add(hash.Sum32())
 		hash.Reset()
 	}
+	for _, word := range words1 {
+		hash.Write([]byte(word))
+		h2.Add(hash.Sum32())
+		hash.Reset()
+	}
+	h2Backup := make([]byte, len(h2.Registers))
+	copy(h2Backup, h2.Registers)
 
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		h2.Merge(h)
+	b.Run("baseline", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			copy(h2.Registers, h2Backup)
+			h2.Merge(h)
+		}
+	})
+	b.Run("swar", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			copy(h2.Registers, h2Backup)
+			h2.MergeSWAR(h)
+		}
+	})
+
+	copy(h2.Registers, h2Backup)
+	h2.Merge(h)
+	mergeResult := make([]byte, len(h2.Registers))
+	copy(mergeResult, h2.Registers)
+	copy(h2.Registers, h2Backup)
+	h2.MergeSWAR(h)
+	mergeSWARResult := make([]byte, len(h2.Registers))
+	copy(mergeSWARResult, h2.Registers)
+	for i := range mergeResult {
+		if mergeResult[i] != mergeSWARResult[i] {
+			b.Fail()
+		}
 	}
 }
