@@ -135,12 +135,12 @@ func (h *HyperLogLog) Merge(other *HyperLogLog) error {
 	}
 
 	// Trigger boundary check once for h.Registers
-	thisRegister := h.Registers
-	_ = thisRegister[len(other.Registers)-1]
+	registers := h.Registers
+	_ = registers[len(other.Registers)-1]
 
 	for j, r := range other.Registers {
-		if r > thisRegister[j] {
-			thisRegister[j] = r
+		if r > registers[j] {
+			registers[j] = r
 		}
 	}
 	return nil
