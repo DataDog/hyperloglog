@@ -2,6 +2,7 @@ package hyperloglog
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -133,6 +134,38 @@ func TestMerge(t *testing.T) {
 
 	if h.Count() != h2.Count() {
 		t.Errorf("Estimate mismatch after merge, %d != %d", h.Count(), h2.Count())
+	}
+}
+
+// go test -run TestBinaryCompatibility -v hyperloglog_test.go  hyperloglog.go  murmur.go
+func TestBinaryCompatibility(t *testing.T) {
+	f, err := os.Create("/tmp/hll-go.bin")
+	if err != nil {
+		t.Fatalf("can't open file: %v", err)
+	}
+	for p := 5; p <= 10; p++ {
+		m := uint(math.Pow(2, float64(p)))
+		h, err := New(m)
+		if err != nil {
+			t.Fatalf("can't make New(%d): %v", m, err)
+		}
+
+		for i := 0; i < 1000; i++ {
+			h.Add(Murmur32(uint32(i)))
+			if err := binary.Write(f, binary.LittleEndian, uint32(p)); err != nil {
+				t.Fatalf("can't write p: %v", err)
+			}
+			if err := binary.Write(f, binary.LittleEndian, uint32(i+1)); err != nil {
+				t.Fatalf("can't write cardinality: %v", err)
+			}
+			count := h.Count()
+			if err := binary.Write(f, binary.LittleEndian, count); err != nil {
+				t.Fatalf("can't write count: %v", err)
+			}
+			if _, err := f.Write(h.Registers); err != nil {
+				t.Fatalf("can't write registers: %v", err)
+			}
+		}
 	}
 }
 
