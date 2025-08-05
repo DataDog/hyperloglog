@@ -2,7 +2,7 @@ package hyperloglog
 
 import (
 	"encoding/binary"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 	"unsafe"
 
@@ -17,7 +17,7 @@ var buf128 = make([]byte, 16)
 // Test that our abbreviated murmur hash works the same as upstream
 func TestMurmur(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		x := rand.Int31()
+		x := rand.Int32N(1<<31 - 1)
 		binary.LittleEndian.PutUint32(buf32, uint32(x))
 		hash := mmh3.Hash32(buf32)
 		m := Murmur32(uint32(x))
@@ -27,7 +27,7 @@ func TestMurmur(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		x := rand.Int63()
+		x := rand.Int64N(1<<63 - 1)
 		binary.LittleEndian.PutUint64(buf64, uint64(x))
 		hash := mmh3.Hash32(buf64)
 		m := Murmur64(uint64(x))
@@ -37,8 +37,8 @@ func TestMurmur(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		x := rand.Int63()
-		y := rand.Int63()
+		x := rand.Int64N(1<<63 - 1)
+		y := rand.Int64N(1<<63 - 1)
 		binary.LittleEndian.PutUint64(buf128, uint64(x))
 		binary.LittleEndian.PutUint64(buf128[8:], uint64(y))
 		hash := mmh3.Hash32(buf128)
@@ -83,11 +83,10 @@ func TestMurmurStringZero(t *testing.T) {
 }
 
 func randString(n int) string {
-	rand.Seed(10)
 	letterRunes := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+		b[i] = letterRunes[rand.IntN(len(letterRunes))]
 	}
 	return string(b)
 }
@@ -131,27 +130,24 @@ func benchmarkHash32(b *testing.B, input []string) {
 }
 
 func Benchmark100MurmurBytes(b *testing.B) {
-	rand.Seed(10)
 	input := make([][]byte, 100)
 	for i := 0; i < 100; i++ {
 		x := make([]byte, 1000)
-		rand.Read(x)
+		RandFill(x)
 		input[i] = x
 	}
 	benchmarkMurmurBytes(b, input)
 }
 
 func Benchmark100Murmur64(b *testing.B) {
-	rand.Seed(10)
 	input := make([]uint64, 100)
 	for i := 0; i < 100; i++ {
-		input[i] = uint64(rand.Int63())
+		input[i] = uint64(rand.Int64N(1<<63 - 1))
 	}
 	benchmarkMurmur64(b, input)
 }
 
 func Benchmark100MurmurString(b *testing.B) {
-	rand.Seed(10)
 	input := make([]string, 100)
 	for i := 0; i < 100; i++ {
 		input[i] = randString((i % 15) + 5)
@@ -159,8 +155,7 @@ func Benchmark100MurmurString(b *testing.B) {
 	benchmarkMurmurString(b, input)
 }
 
-func Benchmark100Hash32(b *testing.B) {
-	rand.Seed(10)
+func Benchmark100MurmurHash32(b *testing.B) {
 	input := make([]string, 100)
 	for i := 0; i < 100; i++ {
 		input[i] = randString((i % 15) + 5)
