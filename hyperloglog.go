@@ -87,6 +87,18 @@ func (h *HyperLogLog) Add(val uint32) {
 	}
 }
 
+// Add64 adds a 64 bit unsigned integer to the count. val should be a
+// 64 bit unsigned integer from a good hash function.
+func (h *HyperLogLog) Add64(val uint64) {
+	k := 64 - h.B
+	slice := (val << h.B) | (1 << (h.B - 1))
+	r := uint8(bits.LeadingZeros64(slice) + 1)
+	j := val >> uint(k)
+	if r > h.Registers[j] {
+		h.Registers[j] = r
+	}
+}
+
 // Count returns the estimated cardinality.
 func (h *HyperLogLog) Count() uint64 {
 	return h.count(true)

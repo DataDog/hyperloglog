@@ -227,3 +227,47 @@ func BenchmarkMerge(b *testing.B) {
 		h2.Merge(h)
 	}
 }
+
+func TestAdd64(t *testing.T) {
+	r := rand.New(rand.NewSource(101))
+
+	h, err := New(1024)
+	if err != nil {
+		t.Fatalf("can't make New(%d): %v", 1024, err)
+	}
+
+	h1, err := New(1024)
+	if err != nil {
+		t.Fatalf("can't make New(%d): %v", 1024, err)
+	}
+
+	expectedCount := uint64(1_000_000)
+	acceptableDelta := 0.04 // 4% error margin
+	for i := 0; i < int(expectedCount); i++ {
+		val := r.Uint64()
+		h.Add64(val)
+		h1.Add64(val)
+	}
+
+	actualCount := h.Count()
+	error := math.Abs(float64(actualCount)-float64(expectedCount)) / float64(expectedCount)
+	if error > acceptableDelta {
+		t.Errorf("Count error %.4f (%.2f%%) exceeds acceptable delta %.2f%%. Expected: %d, Got: %d",
+			error, error*100, acceptableDelta*100, expectedCount, actualCount)
+	}
+
+	actualCount1 := h1.Count()
+	error1 := math.Abs(float64(actualCount1)-float64(expectedCount)) / float64(expectedCount)
+	if error1 > acceptableDelta {
+		t.Errorf("Count error %.4f (%.2f%%) exceeds acceptable delta %.2f%%. Expected: %d, Got: %d",
+			error1, error1*100, acceptableDelta*100, expectedCount, actualCount1)
+	}
+
+	h.Merge(h1)
+	actualCount2 := h.Count()
+	error2 := math.Abs(float64(actualCount2)-float64(expectedCount)) / float64(expectedCount)
+	if error2 > acceptableDelta {
+		t.Errorf("Count error %.4f (%.2f%%) exceeds acceptable delta %.2f%%. Expected: %d, Got: %d",
+			error2, error2*100, acceptableDelta*100, expectedCount, actualCount2)
+	}
+}
